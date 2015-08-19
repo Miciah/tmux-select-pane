@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -euo pipefail
+
+pid=
+file=
+
+if [[ $# -ne 0 ]] && [[ $# -ne 2 ]]
+then
+  printf 'Usage: %s -f <filename> | -p <pid>\n' "$0" >&2
+  exit 1
+fi
+
+if [[ $# -eq 2 ]]
+then
+  case "$1" in
+  (-p)
+    pid="$2"
+    ;;
+  (-f)
+    file="$2"
+    ;;
+  (*)
+    ;;
+  esac
+fi
+
+if [[ "${file:+1}" ]]
+then
+  if ! [[ -e "$file" ]]
+  then
+    printf 'file %s not found.\n' "$file" >&2
+    exit 2
+  fi
+  if ! pidsp="$(lsof -Fp "${file}")"
+  then
+    printf 'could not find process with %s open.\n' "$file" >&2
+    exit 3
+  fi
+  pids=(${pidsp//p/})
+  if [[ ${#pids[@]} -gt 1 ]]
+  then
+    printf 'multiple processes have file %s open: %s\n' "$file" "${pids[*]}" >&2
+    exit 4
+  fi
+  pid="${pids[0]}"
+fi
+
+envfile="/proc/${pid}/environ"
+
+if ! [[ -e "$envfile" ]]
+then
+  printf 'could not process with pid %s under /proc.\n' "$pid" >&2
+  exit 5
+fi
+
+while IFS== read -r -d $'\0' name value
+do
+  if [[ "$name" = TMUX_PANE ]]
+  then
+    exec tmux select-pane -t "$value" \; select-window -t "$value"
+  fi
+done < "$envfile"
+
+printf 'process with pid %s does not have a TMUX_PANE.\n' "$pid" >&2
+exit 6
